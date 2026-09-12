@@ -1,0 +1,4 @@
+# Personnel data files contain real employee PII (names, IDs, hire dates).
+# Repo is currently Public — keep these local until repo visibility / anonymization is decided.
+personnel/data/*.xlsx
+personnel/reports/*.html
