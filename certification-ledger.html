@@ -426,7 +426,7 @@
   const STORAGE_KEY = 'sjv_cert_ledger_v1';
   // 화면 상단(회사명 옆)에 작게 표시되는 버전 표기 — 여러 번 재전달된 파일 중 어떤 버전을
   // 쓰고 있는지 사용자/개발자가 한눈에 구분할 수 있도록 함. 새 버전을 보낼 때마다 갱신할 것.
-  const APP_VERSION = '2026-09-23.9 (백업 내보내기/불러오기 버튼 제거)';
+  const APP_VERSION = '2026-09-23.10 (엑셀 다운로드 버튼 추가 — 현재 자료를 엑셀로 내려받기)';
 
   /* ============================= seed data ============================= */
   /* 기본 상태는 항상 비어 있음 — 실제 데이터는 "엑셀 업로드" 버튼으로 xlsm을 올려야 채워지고,
@@ -922,6 +922,7 @@
       <div class="topbar-actions">
         ${syncStatusHtml()}
         <button class="btn sm" data-action="import-excel">엑셀 업로드</button>
+        <button class="btn sm" data-action="export-data" title="지금 이 화면에 있는 자료(엑셀 업로드 + 수기로 추가/수정한 내용 포함)를 엑셀 파일로 내려받습니다.">엑셀 다운로드</button>
         <button class="btn sm" data-action="sync-settings">동기화 설정</button>
         <button class="btn sm" data-action="export-sign-log" title="사번·이름·공정별로 작성자/확인자/승인자 서명자와 서명일시를 정리한 새 엑셀 파일을 내려받습니다.">서명이력 엑셀</button>
         <button class="btn sm" data-action="approver-admin">승인권자 관리</button>
@@ -1508,6 +1509,33 @@
     toast('백업 파일을 내려받았습니다.');
   }
 
+  /* ============================= 전체 자료 → 엑셀 다운로드 =============================
+     엑셀 업로드로 채워지는 필드(사번/이름/입사일/추천일자/라인/공정/근무지/능력/교육이력)를
+     지금 화면(=이 컴퓨터에 저장된 최신 상태, 수기로 추가/수정한 내용 포함)과 동일하게
+     한 줄에 한 명씩 정리해서 내려받는다. */
+  function exportDataExcel(){
+    if(typeof XLSX === 'undefined'){ toast('엑셀 내보내기 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'); return; }
+    const all = employeesArray();
+    const header = ['사번','이름','입사일','추천일자','라인','공정','근무지','능력/경력','교육이력'];
+    const clean = (s)=> (s||'').replace(/\r\n?/g,' ').trim();
+    const trainingText = (t)=> `${t.year||''} [${t.type==='out'?'사외':'사내'}] ${clean(t.content)}${t.org?' ('+clean(t.org)+')':''}${t.note?' - '+clean(t.note):''}`;
+    const rows = all.map(e=>[
+      e.id, e.name||'', e.hireDate?fmtDate(e.hireDate):'', e.recommendedDate?fmtDate(e.recommendedDate):'',
+      e.department||'', e.process||'', e.workplace||'', e.capability||'',
+      (e.trainings||[]).map(trainingText).join('\n'),
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    ws['!cols'] = [
+      {wch:9},{wch:22},{wch:11},{wch:11},{wch:15},{wch:20},{wch:22},{wch:30},{wch:40}
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '자격증명 자료');
+    const d = new Date();
+    const stamp = d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'_'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0');
+    XLSX.writeFile(wb, `자격증명_자료_${stamp}.xlsx`);
+    toast(`엑셀을 내려받았습니다 (${all.length}명, 지금 화면과 동일한 최신 자료).`);
+  }
+
   /* ============================= 서명 이력 → 엑셀 내보내기 =============================
      원본 결재문서 엑셀(xlsm)을 직접 덮어쓰는 것은 브라우저 보안 정책상 이 파일(file://로 여는
      방식)에서는 안전하게 할 수 없어서, 대신 "누가 언제 서명했는지"를 정리한 새 엑셀 파일을
@@ -1577,6 +1605,7 @@
       if(action==='import-excel'){ document.getElementById('excelFile').click(); }
       if(action==='sync-settings'){ modalSyncSettings(); }
       if(action==='approver-admin'){ modalApproverAdmin(); }
+      if(action==='export-data'){ exportDataExcel(); }
       if(action==='export-sign-log'){ exportSignatureExcel(); }
       if(action==='manual-save'){ saveDB().then(ok=>{ if(ok) toast('저장되었습니다. 이 PC·브라우저에서 다시 열어도 이 내용이 보입니다.'); }); }
       if(action==='reset-local'){
