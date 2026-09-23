@@ -170,6 +170,8 @@
   .pill.mini{padding:2px 7px; font-size:10.5px; gap:3px;}
   .pill-group{display:flex; flex-wrap:wrap; gap:4px; max-width:210px;}
   th.col-no, td.rowno{text-align:center; color:var(--ink-faint); width:44px;}
+  th.col-check, td.col-check{text-align:center; width:40px;}
+  td.col-check input, th.col-check input{width:16px; height:16px; cursor:pointer;}
   .empty-state{padding:52px 20px; text-align:center; color:var(--ink-faint);}
   .empty-state .big{font-size:15px; font-weight:700; color:var(--ink-soft); margin-bottom:6px;}
 
@@ -430,7 +432,7 @@
   const STORAGE_KEY = 'sjv_cert_ledger_v1';
   // 화면 상단(회사명 옆)에 작게 표시되는 버전 표기 — 여러 번 재전달된 파일 중 어떤 버전을
   // 쓰고 있는지 사용자/개발자가 한눈에 구분할 수 있도록 함. 새 버전을 보낼 때마다 갱신할 것.
-  const APP_VERSION = '2026-09-23.18 (Unit/Assy/전체 버튼 너비 3배 확대)';
+  const APP_VERSION = '2026-09-23.19 (결재상태 오른쪽에 체크박스 + 선택 삭제 기능 추가)';
 
   /* ============================= seed data ============================= */
   /* 기본 상태는 항상 비어 있음 — 실제 데이터는 "엑셀 업로드" 버튼으로 xlsm을 올려야 채워지고,
@@ -897,7 +899,7 @@
   }
 
   /* ============================= state ============================= */
-  const view = { screen:'dashboard', line:null, category:null, empId:null, search:'' };
+  const view = { screen:'dashboard', line:null, category:null, empId:null, search:'', selected:new Set() };
   let pendingPhotoEmpId = null;
 
   function employeesArray(){
@@ -906,6 +908,18 @@
       (a.name||'').localeCompare(b.name||'') ||
       String(a.id).localeCompare(String(b.id))
     );
+  }
+  // 대시보드 "인원 목록"에 지금 보이는(카테고리·라인·검색 필터가 다 적용된) 목록 —
+  // 체크박스 "전체 선택"이 무엇을 선택 대상으로 삼을지 판단할 때도 같이 쓴다.
+  function filteredEmployeeList(){
+    let list = employeesArray();
+    if(view.category) list = list.filter(e=> e.category===view.category);
+    if(view.line) list = list.filter(e=>(e.department||'(미지정)')===view.line);
+    if(view.search){
+      const q = view.search.trim().toLowerCase();
+      list = list.filter(e=> String(e.id).toLowerCase().includes(q) || (e.name||'').toLowerCase().includes(q) || (e.process||'').toLowerCase().includes(q));
+    }
+    return list;
   }
   function statusOf(emp){
     const sigs = emp.signatures||{};
@@ -1012,13 +1026,7 @@
     const categories = Array.from(new Set(all.map(e=>e.category).filter(Boolean)))
       .sort((a,b)=> (CATEGORY_ORDER.indexOf(a)+1||99) - (CATEGORY_ORDER.indexOf(b)+1||99) || a.localeCompare(b));
     const lines = Array.from(new Set(all.map(e=>e.department||'(미지정)'))).sort();
-    let list = all;
-    if(view.category) list = list.filter(e=> e.category===view.category);
-    if(view.line) list = list.filter(e=>(e.department||'(미지정)')===view.line);
-    if(view.search){
-      const q = view.search.trim().toLowerCase();
-      list = list.filter(e=> String(e.id).toLowerCase().includes(q) || (e.name||'').toLowerCase().includes(q) || (e.process||'').toLowerCase().includes(q));
-    }
+    const list = filteredEmployeeList();
 
     const categoryTabs = categories.length ? categories.map(c=>
       `<button class="tab tab-wide ${view.category===c?'active':''}" data-action="filter-category" data-category="${esc(c)}">${esc(c)}</button>`
@@ -1033,15 +1041,18 @@
       </div>
     </div>`;
 
+    const selectedCount = Array.from(view.selected).filter(id=>DB.employees[id]).length;
     const toolbar = `<div class="toolbar">
       ${tabs}
       <div class="search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         <input type="text" id="searchInput" placeholder="사번 · 이름 · 공정 검색" value="${esc(view.search)}">
       </div>
+      <button class="btn danger" data-action="delete-selected" ${selectedCount?'':'disabled'}>선택 삭제 (${selectedCount})</button>
       <button class="btn primary" data-action="add-employee">+ 신규 인원 등록</button>
     </div>`;
 
+    const allChecked = list.length>0 && list.every(e=>view.selected.has(e.id));
     const rows = list.map((e, idx)=>{
       const sigs = e.signatures||{};
       const rolePills = ROLES.map(r=>{
@@ -1059,13 +1070,14 @@
         <td>${esc(e.process||'')}</td>
         <td>${fmtDate(e.hireDate)}</td>
         <td><div class="pill-group">${rolePills}</div></td>
+        <td class="col-check"><input type="checkbox" data-action="toggle-select" data-id="${esc(e.id)}" ${view.selected.has(e.id)?'checked':''}></td>
       </tr>`;
     }).join('');
 
     const table = list.length ? `
       <div class="table-wrap"><div class="table-scroll">
         <table>
-          <thead><tr><th class="col-no">No</th><th>사번</th><th>이름 (Tên)</th><th>라인</th><th>공정</th><th>입사일</th><th>결재상태</th></tr></thead>
+          <thead><tr><th class="col-no">No</th><th>사번</th><th>이름 (Tên)</th><th>라인</th><th>공정</th><th>입사일</th><th>결재상태</th><th class="col-check"><input type="checkbox" data-action="toggle-select-all" ${allChecked?'checked':''}></th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div></div>` : `
@@ -1522,6 +1534,17 @@
     render();
   }
 
+  async function deleteSelectedEmployees(){
+    const ids = Array.from(view.selected).filter(id=>DB.employees[id]);
+    if(!ids.length) return;
+    if(!confirm(`선택한 ${ids.length}명을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
+    ids.forEach(id=>{ delete DB.employees[id]; });
+    const ok = await saveDB();
+    view.selected.clear();
+    if(ok) toast(`${ids.length}명을 삭제했습니다.`);
+    render();
+  }
+
   /* ============================= backup export / import ============================= */
   function exportBackup(){
     const blob = new Blob([JSON.stringify(DB, null, 2)], {type:'application/json'});
@@ -1970,6 +1993,18 @@ ${imgs.map((img,j)=>`<Relationship Id="rIdImg${j}" Type="http://schemas.openxmlf
       if(action==='open-sign'){ modalSign(t.dataset.empid, t.dataset.role); }
       if(action==='unlock-sig'){ modalUnlock(t.dataset.empid, t.dataset.role); }
       if(action==='delete-employee'){ deleteEmployee(t.dataset.id); }
+      if(action==='toggle-select'){
+        const id = t.dataset.id;
+        if(view.selected.has(id)) view.selected.delete(id); else view.selected.add(id);
+        render();
+      }
+      if(action==='toggle-select-all'){
+        const list = filteredEmployeeList();
+        const allChecked = list.length>0 && list.every(e=>view.selected.has(e.id));
+        list.forEach(e=>{ if(allChecked) view.selected.delete(e.id); else view.selected.add(e.id); });
+        render();
+      }
+      if(action==='delete-selected'){ deleteSelectedEmployees(); }
       if(action==='print-cert'){ window.print(); }
       if(action==='pick-photo'){ pendingPhotoEmpId = t.dataset.empid; document.getElementById('photoFile').click(); }
       if(action==='import-excel'){ document.getElementById('excelFile').click(); }
