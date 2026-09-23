@@ -426,7 +426,7 @@
   const STORAGE_KEY = 'sjv_cert_ledger_v1';
   // 화면 상단(회사명 옆)에 작게 표시되는 버전 표기 — 여러 번 재전달된 파일 중 어떤 버전을
   // 쓰고 있는지 사용자/개발자가 한눈에 구분할 수 있도록 함. 새 버전을 보낼 때마다 갱신할 것.
-  const APP_VERSION = '2026-09-23.10 (엑셀 다운로드 버튼 추가 — 현재 자료를 엑셀로 내려받기)';
+  const APP_VERSION = '2026-09-23.11 (엑셀 다운로드를 업로드 원본과 같은 양식으로 변경 — 직원별 시트)';
 
   /* ============================= seed data ============================= */
   /* 기본 상태는 항상 비어 있음 — 실제 데이터는 "엑셀 업로드" 버튼으로 xlsm을 올려야 채워지고,
@@ -1509,31 +1509,101 @@
     toast('백업 파일을 내려받았습니다.');
   }
 
-  /* ============================= 전체 자료 → 엑셀 다운로드 =============================
-     엑셀 업로드로 채워지는 필드(사번/이름/입사일/추천일자/라인/공정/근무지/능력/교육이력)를
-     지금 화면(=이 컴퓨터에 저장된 최신 상태, 수기로 추가/수정한 내용 포함)과 동일하게
-     한 줄에 한 명씩 정리해서 내려받는다. */
+  /* ============================= 전체 자료 → 엑셀 다운로드 (업로드 원본과 같은 양식) =============================
+     업로드하는 CHỨNG CHỈ U1.xlsm은 "직원 1명 = 시트 1장" 구조로, 시트마다 정해진 칸에
+     사번(C2)/이름(H2)/입사일(C3)/부서(C4)/공정(C5)/근무지(C6)/능력(C12,C13)/추천일자(D21)/
+     교육이력(17행부터)이 들어있다(parseSheetToEmployee가 읽는 바로 그 칸들). 다운로드도
+     같은 칸 배치·라벨을 그대로 재현해서 직원별로 시트를 새로 만든다 — 지금 화면의 최신 자료
+     (엑셀 업로드 + 수기로 추가/수정한 내용 포함)가 반영된다.
+     한계: SheetJS 무료 버전은 셀에 사진을 써넣는 기능이 없어 사진은 이 파일에 포함되지 않고,
+     글꼴/테두리 같은 서식도 입력은 안 하고 값과 칸 배치만 원본과 동일하게 맞춘다. */
+  function setCellVal(ws, addr, v){
+    if(v===undefined || v===null || v==='') return;
+    if(v instanceof Date && !isNaN(v)) ws[addr] = {t:'d', v, z:'yyyy-mm-dd'};
+    else if(typeof v === 'number') ws[addr] = {t:'n', v};
+    else ws[addr] = {t:'s', v:String(v)};
+  }
+  function buildEmployeeCertSheet(emp){
+    const ws = {};
+    const set = (addr, v)=> setCellVal(ws, addr, v);
+    set('A1','GIẤY CHỨNG NHẬN ĐỦ ĐIỀU KIỆN');
+    set('A2','SỐ THẺ:  ');           set('C2', emp.id);
+    set('G2','Name : ');             set('H2', emp.name||'');
+    set('B3','NGÀY VÀO LÀM:  ');     if(emp.hireDate) set('C3', new Date(emp.hireDate+'T00:00:00'));
+    set('B4','BỘ PHẬN:');            set('C4', emp.department||'');
+    set('B5','CÔNG ĐOẠN:');          set('C5', emp.process||'');
+    set('B6','NƠI LÀM VIỆC:  ');     set('C6', emp.workplace||'');
+    set('B7','▣ TRÌNH ĐỘ CHUYÊN MÔN');
+    set('A8','PHÂN LOẠI'); set('C8','CHI TIẾT'); set('H8','NỘI DUNG KHÁC');
+    set('A9','KINH NGHIỆM LÀM VIỆC');
+    set('A12','NĂNG LỰC LÀM VIỆC');
+    const capLines = (emp.capability||'').split('\n');
+    set('C12', capLines[0]||''); set('C13', capLines[1]||'');
+    set('B15','▣ TÌNH TRẠNG ĐÀO TẠO');
+    set('A16','NĂM'); set('B16','LOẠI HÌNH ĐÀO TẠO'); set('C16','CƠ QUAN ĐÀO TẠO');
+    set('E16','LỊCH ĐÀO TẠO'); set('G16','THỜI GIAN ĐÀO TẠO'); set('H16','PHÂN LOẠI'); set('J16','GHI CHÚ');
+
+    const cleanRaw = (s)=> (s||'').replace(/\r\n?/g,'\n');
+    const trainings = emp.trainings || [];
+    const startRow = 17;
+    trainings.forEach((t, i)=>{
+      const r = startRow + i;
+      if(i===0 || t.year !== trainings[i-1].year) set('A'+r, t.year||'');
+      set('B'+r, cleanRaw(t.content));
+      set('C'+r, cleanRaw(t.org));
+      if(t.type==='out') set('I'+r, '√□NGOÀI CTY'); else set('H'+r, '√□TRONG CTY');
+      if(t.note) set('J'+r, cleanRaw(t.note));
+    });
+
+    const recRow = startRow + trainings.length;
+    set('A'+recRow, 'NGƯỜI TRÊN ĐƯỢC ĐỀ CỬ NGÀY ');
+    if(emp.recommendedDate) set('D'+recRow, new Date(emp.recommendedDate+'T00:00:00'));
+    set('H'+recRow, 'NGƯỜI LẬP'); set('I'+recRow, 'KIỂM TRA'); set('J'+recRow, 'DUYỆT');
+    const docRow = recRow + 2;
+    set('A'+docRow, DOC_CODE); set('J'+docRow, COMPANY+' ');
+
+    const merges = [];
+    const M = (r1,c1,r2,c2)=> merges.push({s:{r:r1-1,c:c1-1}, e:{r:r2-1,c:c2-1}});
+    M(1,1,1,10); M(2,1,2,2); M(2,3,2,6); M(2,8,2,10); M(3,3,3,8); M(4,3,4,8); M(5,3,5,8); M(6,3,6,8);
+    M(7,4,7,8); M(3,9,7,10);
+    M(8,1,8,2); M(8,3,8,7); M(8,8,8,10);
+    M(9,1,11,2); M(9,3,9,7); M(10,3,10,7); M(11,3,11,7);
+    M(12,1,14,2); M(12,3,12,7); M(13,3,13,7); M(14,3,14,7);
+    M(16,5,16,6); M(16,8,16,9);
+    if(trainings.length>0){
+      let yearStart = startRow;
+      trainings.forEach((t, i)=>{
+        const r = startRow+i;
+        if(i>0 && t.year !== trainings[i-1].year) yearStart = r;
+        const isLastOfYear = (i===trainings.length-1) || (trainings[i+1].year !== t.year);
+        if(isLastOfYear && r > yearStart) M(yearStart,1,r,1);
+        M(r,3,r,4); M(r,5,r,6);
+      });
+    }
+    M(recRow,1,recRow+1,3); M(recRow,4,recRow+1,7);
+
+    ws['!ref'] = 'A1:J'+docRow;
+    ws['!merges'] = merges;
+    ws['!cols'] = [{wch:12},{wch:16},{wch:14},{wch:8},{wch:8},{wch:8},{wch:12},{wch:12},{wch:10},{wch:16}];
+    return ws;
+  }
   function exportDataExcel(){
     if(typeof XLSX === 'undefined'){ toast('엑셀 내보내기 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'); return; }
     const all = employeesArray();
-    const header = ['사번','이름','입사일','추천일자','라인','공정','근무지','능력/경력','교육이력'];
-    const clean = (s)=> (s||'').replace(/\r\n?/g,' ').trim();
-    const trainingText = (t)=> `${t.year||''} [${t.type==='out'?'사외':'사내'}] ${clean(t.content)}${t.org?' ('+clean(t.org)+')':''}${t.note?' - '+clean(t.note):''}`;
-    const rows = all.map(e=>[
-      e.id, e.name||'', e.hireDate?fmtDate(e.hireDate):'', e.recommendedDate?fmtDate(e.recommendedDate):'',
-      e.department||'', e.process||'', e.workplace||'', e.capability||'',
-      (e.trainings||[]).map(trainingText).join('\n'),
-    ]);
-    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-    ws['!cols'] = [
-      {wch:9},{wch:22},{wch:11},{wch:11},{wch:15},{wch:20},{wch:22},{wch:30},{wch:40}
-    ];
+    if(!all.length){ toast('등록된 인원이 없습니다.'); return; }
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '자격증명 자료');
+    const usedNames = new Set();
+    all.forEach(e=>{
+      let name = String(e.id).slice(0,31) || 'sheet';
+      while(usedNames.has(name)) name = (name+'_').slice(-31);
+      usedNames.add(name);
+      const ws = buildEmployeeCertSheet(e);
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    });
     const d = new Date();
     const stamp = d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'_'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0');
-    XLSX.writeFile(wb, `자격증명_자료_${stamp}.xlsx`);
-    toast(`엑셀을 내려받았습니다 (${all.length}명, 지금 화면과 동일한 최신 자료).`);
+    XLSX.writeFile(wb, `자격증명_${stamp}.xlsx`);
+    toast(`엑셀을 내려받았습니다 (${all.length}명, 업로드 원본과 같은 양식 — 사진은 포함되지 않습니다).`);
   }
 
   /* ============================= 서명 이력 → 엑셀 내보내기 =============================
