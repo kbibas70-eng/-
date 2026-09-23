@@ -140,6 +140,8 @@
   .btn.danger{color:var(--danger);}
   .btn:disabled{opacity:.5; cursor:not-allowed;}
   .btn.sm{padding:5px 10px; font-size:12px;}
+  .btn.stacked{flex-direction:column; gap:1px; line-height:1.25;}
+  .btn-vi{font-size:10px; font-weight:600; opacity:.62; letter-spacing:.01em;}
 
   /* ---------- table ---------- */
   .table-wrap{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow);}
@@ -426,7 +428,7 @@
   const STORAGE_KEY = 'sjv_cert_ledger_v1';
   // 화면 상단(회사명 옆)에 작게 표시되는 버전 표기 — 여러 번 재전달된 파일 중 어떤 버전을
   // 쓰고 있는지 사용자/개발자가 한눈에 구분할 수 있도록 함. 새 버전을 보낼 때마다 갱신할 것.
-  const APP_VERSION = '2026-09-23.14 (인원 목록에 Unit/Assy 필터 버튼 추가)';
+  const APP_VERSION = '2026-09-23.15 (저장 버튼을 다른 이름으로 저장으로 변경, 버튼마다 베트남어 병기)';
 
   /* ============================= seed data ============================= */
   /* 기본 상태는 항상 비어 있음 — 실제 데이터는 "엑셀 업로드" 버튼으로 xlsm을 올려야 채워지고,
@@ -931,13 +933,13 @@
       </div>
       <div class="topbar-actions">
         ${syncStatusHtml()}
-        <button class="btn sm" data-action="import-excel">엑셀 업로드</button>
-        <button class="btn sm" data-action="export-data" title="지금 이 화면에 있는 자료(엑셀 업로드 + 수기로 추가/수정한 내용 포함)를 엑셀 파일로 내려받습니다.">엑셀 다운로드</button>
-        <button class="btn sm" data-action="sync-settings">동기화 설정</button>
-        <button class="btn sm" data-action="export-sign-log" title="사번·이름·공정별로 작성자/확인자/승인자 서명자와 서명일시를 정리한 새 엑셀 파일을 내려받습니다.">서명이력 엑셀</button>
-        <button class="btn sm" data-action="approver-admin">승인권자 관리</button>
-        <button class="btn sm primary" data-action="manual-save">저장</button>
-        <button class="btn sm danger" data-action="reset-local" title="이 컴퓨터·브라우저에 저장된 예전 데이터를 지우고, 이 파일에 들어있는 최신 데이터로 다시 시작합니다.">초기화</button>
+        <button class="btn sm stacked" data-action="import-excel">엑셀 업로드<span class="btn-vi">Tải lên Excel</span></button>
+        <button class="btn sm stacked" data-action="export-data" title="지금 이 화면에 있는 자료(엑셀 업로드 + 수기로 추가/수정한 내용 포함)를 엑셀 파일로 내려받습니다.">엑셀 다운로드<span class="btn-vi">Tải xuống Excel</span></button>
+        <button class="btn sm stacked" data-action="sync-settings">동기화 설정<span class="btn-vi">Cài đặt đồng bộ</span></button>
+        <button class="btn sm stacked" data-action="export-sign-log" title="사번·이름·공정별로 작성자/확인자/승인자 서명자와 서명일시를 정리한 새 엑셀 파일을 내려받습니다.">서명이력 엑셀<span class="btn-vi">Excel lịch sử ký</span></button>
+        <button class="btn sm stacked" data-action="approver-admin">승인권자 관리<span class="btn-vi">Quản lý người duyệt</span></button>
+        <button class="btn sm stacked primary" data-action="manual-save">다른 이름으로 저장<span class="btn-vi">Lưu dưới dạng</span></button>
+        <button class="btn sm stacked danger" data-action="reset-local" title="이 컴퓨터·브라우저에 저장된 예전 데이터를 지우고, 이 파일에 들어있는 최신 데이터로 다시 시작합니다.">초기화<span class="btn-vi">Đặt lại</span></button>
       </div>
     </div>`;
   }
