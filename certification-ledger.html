@@ -118,6 +118,7 @@
   /* ---------- controls / toolbar ---------- */
   .toolbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px;}
   .tabs{display:flex; gap:6px; flex-wrap:wrap;}
+  .tabs-wrap{display:flex; flex-direction:column; gap:6px;}
   .tab{
     padding:7px 13px; border-radius:999px; border:1px solid var(--border); background:var(--surface);
     font-size:12.5px; font-weight:700; color:var(--ink-soft);
@@ -428,7 +429,7 @@
   const STORAGE_KEY = 'sjv_cert_ledger_v1';
   // 화면 상단(회사명 옆)에 작게 표시되는 버전 표기 — 여러 번 재전달된 파일 중 어떤 버전을
   // 쓰고 있는지 사용자/개발자가 한눈에 구분할 수 있도록 함. 새 버전을 보낼 때마다 갱신할 것.
-  const APP_VERSION = '2026-09-23.15 (저장 버튼을 다른 이름으로 저장으로 변경, 버튼마다 베트남어 병기)';
+  const APP_VERSION = '2026-09-23.16 (인원 목록 필터 줄바꿈 — Unit/Assy/전체와 라인 버튼을 분리)';
 
   /* ============================= seed data ============================= */
   /* 기본 상태는 항상 비어 있음 — 실제 데이터는 "엑셀 업로드" 버튼으로 xlsm을 올려야 채워지고,
@@ -1021,10 +1022,14 @@
     const categoryTabs = categories.length ? categories.map(c=>
       `<button class="tab ${view.category===c?'active':''}" data-action="filter-category" data-category="${esc(c)}">${esc(c)}</button>`
     ).join('') : '';
-    const tabs = `<div class="tabs">
-      ${categoryTabs}
-      <button class="tab ${!view.line?'active':''}" data-action="filter-line" data-line="">전체</button>
-      ${lines.map(l=>`<button class="tab ${view.line===l?'active':''}" data-action="filter-line" data-line="${esc(l)}">${esc(l)}</button>`).join('')}
+    const tabs = `<div class="tabs-wrap">
+      <div class="tabs">
+        ${categoryTabs}
+        <button class="tab ${!view.line?'active':''}" data-action="filter-line" data-line="">전체</button>
+      </div>
+      <div class="tabs">
+        ${lines.map(l=>`<button class="tab ${view.line===l?'active':''}" data-action="filter-line" data-line="${esc(l)}">${esc(l)}</button>`).join('')}
+      </div>
     </div>`;
 
     const toolbar = `<div class="toolbar">
