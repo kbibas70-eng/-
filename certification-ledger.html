@@ -426,7 +426,7 @@
   const STORAGE_KEY = 'sjv_cert_ledger_v1';
   // 화면 상단(회사명 옆)에 작게 표시되는 버전 표기 — 여러 번 재전달된 파일 중 어떤 버전을
   // 쓰고 있는지 사용자/개발자가 한눈에 구분할 수 있도록 함. 새 버전을 보낼 때마다 갱신할 것.
-  const APP_VERSION = '2026-09-23.11 (엑셀 다운로드를 업로드 원본과 같은 양식으로 변경 — 직원별 시트)';
+  const APP_VERSION = '2026-09-23.12 (엑셀 다운로드에 테두리·굵은 글씨·배경색·사진·결재 싸인까지 반영)';
 
   /* ============================= seed data ============================= */
   /* 기본 상태는 항상 비어 있음 — 실제 데이터는 "엑셀 업로드" 버튼으로 xlsm을 올려야 채워지고,
@@ -1510,60 +1510,113 @@
   }
 
   /* ============================= 전체 자료 → 엑셀 다운로드 (업로드 원본과 같은 양식) =============================
-     업로드하는 CHỨNG CHỈ U1.xlsm은 "직원 1명 = 시트 1장" 구조로, 시트마다 정해진 칸에
-     사번(C2)/이름(H2)/입사일(C3)/부서(C4)/공정(C5)/근무지(C6)/능력(C12,C13)/추천일자(D21)/
-     교육이력(17행부터)이 들어있다(parseSheetToEmployee가 읽는 바로 그 칸들). 다운로드도
-     같은 칸 배치·라벨을 그대로 재현해서 직원별로 시트를 새로 만든다 — 지금 화면의 최신 자료
-     (엑셀 업로드 + 수기로 추가/수정한 내용 포함)가 반영된다.
-     한계: SheetJS 무료 버전은 셀에 사진을 써넣는 기능이 없어 사진은 이 파일에 포함되지 않고,
-     글꼴/테두리 같은 서식도 입력은 안 하고 값과 칸 배치만 원본과 동일하게 맞춘다. */
-  function setCellVal(ws, addr, v){
-    if(v===undefined || v===null || v==='') return;
-    if(v instanceof Date && !isNaN(v)) ws[addr] = {t:'d', v, z:'yyyy-mm-dd'};
-    else if(typeof v === 'number') ws[addr] = {t:'n', v};
-    else ws[addr] = {t:'s', v:String(v)};
+     업로드하는 CHỨNG CHỈ U1.xlsm은 "직원 1명 = 시트 1장" 구조로, 시트마다 정해진 칸에 라벨·테두리·
+     배경색까지 정해진 양식지가 있고(사번 C2/이름 H2/입사일 C3/부서 C4/공정 C5/근무지 C6/능력
+     C12,C13/추천일자 D21/교육이력 17행부터 — parseSheetToEmployee가 읽는 바로 그 칸들), 사진과
+     결재 싸인은 별도 그림으로 그 위에 얹혀 있다. 다운로드도 이 양식을 그대로 재현한다.
+     SheetJS(XLSX) 무료 버전은 셀 서식이나 그림을 써주는 기능이 없어서, XLSX는 엑셀 "업로드"
+     파싱에만 쓰고, 이 다운로드는 xlsx 파일(=zip) 내부 XML을 JSZip으로 직접 만들어
+     테두리·굵은 글씨·배경색·병합·사진·결재 싸인까지 전부 담는다. */
+  function colLetter(n){ let s=''; while(n>0){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=Math.floor((n-1)/26); } return s; }
+  function cellAddr(col, row){ return colLetter(col)+row; }
+
+  const CERT_STYLE_IDX = { title:1, section:2, header:3, label:4, valueLeft:5, valueCenter:6, dateCenter:7, blank:8 };
+  const CERT_STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts>
+<fonts count="3">
+<font><sz val="11"/><name val="Calibri"/></font>
+<font><b/><sz val="11"/><name val="Calibri"/></font>
+<font><b/><sz val="16"/><name val="Calibri"/></font>
+</fonts>
+<fills count="4">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFCE9C6"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFE7E7E7"/><bgColor indexed="64"/></patternFill></fill>
+</fills>
+<borders count="2">
+<border><left/><right/><top/><bottom/><diagonal/></border>
+<border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>
+</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="9">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+
+  function certPhotoMimeExt(dataUrl){
+    const m = /^data:image\/(png|jpeg|jpg|gif|bmp);base64,(.*)$/s.exec(dataUrl||'');
+    if(!m) return null;
+    return { ext: m[1]==='jpg'?'jpeg':m[1], base64: m[2] };
   }
-  function buildEmployeeCertSheet(emp){
-    const ws = {};
-    const set = (addr, v)=> setCellVal(ws, addr, v);
-    set('A1','GIẤY CHỨNG NHẬN ĐỦ ĐIỀU KIỆN');
-    set('A2','SỐ THẺ:  ');           set('C2', emp.id);
-    set('G2','Name : ');             set('H2', emp.name||'');
-    set('B3','NGÀY VÀO LÀM:  ');     if(emp.hireDate) set('C3', new Date(emp.hireDate+'T00:00:00'));
-    set('B4','BỘ PHẬN:');            set('C4', emp.department||'');
-    set('B5','CÔNG ĐOẠN:');          set('C5', emp.process||'');
-    set('B6','NƠI LÀM VIỆC:  ');     set('C6', emp.workplace||'');
-    set('B7','▣ TRÌNH ĐỘ CHUYÊN MÔN');
-    set('A8','PHÂN LOẠI'); set('C8','CHI TIẾT'); set('H8','NỘI DUNG KHÁC');
-    set('A9','KINH NGHIỆM LÀM VIỆC');
-    set('A12','NĂNG LỰC LÀM VIỆC');
+  const CERT_SIGN_COLS = { preparer:8, checker:9, approver:10 }; // H/I/J
+  function certRecRow(emp){ return 17 + (emp.trainings||[]).length; } // "NGƯỜI TRÊN ĐƯỢC ĐỀ CỬ NGÀY" 행
+  function certSheetImages(emp){
+    const imgs = [];
+    const photo = certPhotoMimeExt(emp.photoData);
+    if(photo) imgs.push(Object.assign({name:'photo', fromCol:8, fromRow:2, toCol:10, toRow:7}, photo));
+    const recRow = certRecRow(emp);
+    ROLES.forEach(role=>{
+      const col = CERT_SIGN_COLS[role.key];
+      const sig = emp.signatures && emp.signatures[role.key];
+      const parsed = sig && certPhotoMimeExt(sig.signatureImage);
+      if(parsed) imgs.push(Object.assign({name:role.key, fromCol:col-1, fromRow:recRow, toCol:col, toRow:recRow+1}, parsed));
+    });
+    return imgs;
+  }
+
+  function buildCertSheetXml(emp, hasDrawing){
+    const NCOLS = 10, set = {};
+    const put = (a, styleKey, value, type)=>{ set[a] = {style: CERT_STYLE_IDX[styleKey], value, type: type||'s'}; };
+    put('A1','title','GIẤY CHỨNG NHẬN ĐỦ ĐIỀU KIỆN');
+    put('A2','label','SỐ THẺ:  ');            put('C2','valueCenter', emp.id);
+    put('G2','label','Name : ');              put('H2','valueCenter', emp.name||'');
+    put('B3','label','NGÀY VÀO LÀM:  ');
+    if(emp.hireDate) put('C3','dateCenter', emp.hireDate,'d'); else put('C3','valueCenter','');
+    put('B4','label','BỘ PHẬN:');             put('C4','valueCenter', emp.department||'');
+    put('B5','label','CÔNG ĐOẠN:');           put('C5','valueCenter', emp.process||'');
+    put('B6','label','NƠI LÀM VIỆC:  ');      put('C6','valueCenter', emp.workplace||'');
+    put('B7','section','▣ TRÌNH ĐỘ CHUYÊN MÔN');
+    put('A8','header','PHÂN LOẠI'); put('C8','header','CHI TIẾT'); put('H8','header','NỘI DUNG KHÁC');
+    put('A9','label','KINH NGHIỆM LÀM VIỆC');
+    put('A12','label','NĂNG LỰC LÀM VIỆC');
     const capLines = (emp.capability||'').split('\n');
-    set('C12', capLines[0]||''); set('C13', capLines[1]||'');
-    set('B15','▣ TÌNH TRẠNG ĐÀO TẠO');
-    set('A16','NĂM'); set('B16','LOẠI HÌNH ĐÀO TẠO'); set('C16','CƠ QUAN ĐÀO TẠO');
-    set('E16','LỊCH ĐÀO TẠO'); set('G16','THỜI GIAN ĐÀO TẠO'); set('H16','PHÂN LOẠI'); set('J16','GHI CHÚ');
+    put('C12','valueLeft', capLines[0]||''); put('C13','valueLeft', capLines[1]||'');
+    put('B15','section','▣ TÌNH TRẠNG ĐÀO TẠO');
+    put('A16','header','NĂM'); put('B16','header','LOẠI HÌNH ĐÀO TẠO'); put('C16','header','CƠ QUAN ĐÀO TẠO');
+    put('E16','header','LỊCH ĐÀO TẠO'); put('G16','header','THỜI GIAN ĐÀO TẠO'); put('H16','header','PHÂN LOẠI'); put('J16','header','GHI CHÚ');
 
     const cleanRaw = (s)=> (s||'').replace(/\r\n?/g,'\n');
     const trainings = emp.trainings || [];
     const startRow = 17;
-    trainings.forEach((t, i)=>{
-      const r = startRow + i;
-      if(i===0 || t.year !== trainings[i-1].year) set('A'+r, t.year||'');
-      set('B'+r, cleanRaw(t.content));
-      set('C'+r, cleanRaw(t.org));
-      if(t.type==='out') set('I'+r, '√□NGOÀI CTY'); else set('H'+r, '√□TRONG CTY');
-      if(t.note) set('J'+r, cleanRaw(t.note));
+    trainings.forEach((t,i)=>{
+      const r = startRow+i;
+      if(i===0 || t.year !== trainings[i-1].year) put('A'+r,'valueCenter', t.year||'');
+      put('B'+r,'valueLeft', cleanRaw(t.content));
+      put('C'+r,'valueLeft', cleanRaw(t.org));
+      if(t.type==='out') put('I'+r,'valueCenter','√□NGOÀI CTY'); else put('H'+r,'valueCenter','√□TRONG CTY');
+      if(t.note) put('J'+r,'valueLeft', cleanRaw(t.note));
     });
 
-    const recRow = startRow + trainings.length;
-    set('A'+recRow, 'NGƯỜI TRÊN ĐƯỢC ĐỀ CỬ NGÀY ');
-    if(emp.recommendedDate) set('D'+recRow, new Date(emp.recommendedDate+'T00:00:00'));
-    set('H'+recRow, 'NGƯỜI LẬP'); set('I'+recRow, 'KIỂM TRA'); set('J'+recRow, 'DUYỆT');
+    const recRow = certRecRow(emp);
+    put('A'+recRow,'label','NGƯỜI TRÊN ĐƯỢC ĐỀ CỬ NGÀY ');
+    if(emp.recommendedDate) put('D'+recRow,'dateCenter', emp.recommendedDate,'d'); else put('D'+recRow,'valueCenter','');
+    put('H'+recRow,'header','NGƯỜI LẬP'); put('I'+recRow,'header','KIỂM TRA'); put('J'+recRow,'header','DUYỆT');
     const docRow = recRow + 2;
-    set('A'+docRow, DOC_CODE); set('J'+docRow, COMPANY+' ');
+    put('A'+docRow,'valueLeft', DOC_CODE); put('J'+docRow,'valueCenter', COMPANY+' ');
 
     const merges = [];
-    const M = (r1,c1,r2,c2)=> merges.push({s:{r:r1-1,c:c1-1}, e:{r:r2-1,c:c2-1}});
+    const M = (r1,c1,r2,c2)=> merges.push([r1,c1,r2,c2]);
     M(1,1,1,10); M(2,1,2,2); M(2,3,2,6); M(2,8,2,10); M(3,3,3,8); M(4,3,4,8); M(5,3,5,8); M(6,3,6,8);
     M(7,4,7,8); M(3,9,7,10);
     M(8,1,8,2); M(8,3,8,7); M(8,8,8,10);
@@ -1572,7 +1625,7 @@
     M(16,5,16,6); M(16,8,16,9);
     if(trainings.length>0){
       let yearStart = startRow;
-      trainings.forEach((t, i)=>{
+      trainings.forEach((t,i)=>{
         const r = startRow+i;
         if(i>0 && t.year !== trainings[i-1].year) yearStart = r;
         const isLastOfYear = (i===trainings.length-1) || (trainings[i+1].year !== t.year);
@@ -1582,28 +1635,158 @@
     }
     M(recRow,1,recRow+1,3); M(recRow,4,recRow+1,7);
 
-    ws['!ref'] = 'A1:J'+docRow;
-    ws['!merges'] = merges;
-    ws['!cols'] = [{wch:12},{wch:16},{wch:14},{wch:8},{wch:8},{wch:8},{wch:12},{wch:12},{wch:10},{wch:16}];
-    return ws;
+    const inMerge = new Set();
+    merges.forEach(([r1,c1,r2,c2])=>{
+      for(let r=r1;r<=r2;r++) for(let c=c1;c<=c2;c++){ if(r===r1&&c===c1) continue; inMerge.add(cellAddr(c,r)); }
+    });
+
+    const excelEpoch = Date.UTC(1899,11,30);
+    const dateSerial = (isoStr)=> Math.round((new Date(isoStr+'T00:00:00Z').getTime()-excelEpoch)/86400000);
+    let rowsXml = '';
+    for(let r=1;r<=docRow;r++){
+      let cellsXml = '', maxLines = 1;
+      for(let c=1;c<=NCOLS;c++){
+        const a = cellAddr(c,r);
+        const cell = set[a];
+        if(cell){
+          if(cell.type==='d'){
+            cellsXml += `<c r="${a}" s="${cell.style}"><v>${dateSerial(cell.value)}</v></c>`;
+          } else {
+            const text = String(cell.value);
+            const lines = (text.match(/\n/g)||[]).length + 1;
+            if(lines > maxLines) maxLines = lines;
+            cellsXml += text==='' ? `<c r="${a}" s="${cell.style}"/>`
+              : `<c r="${a}" s="${cell.style}" t="inlineStr"><is><t xml:space="preserve">${esc(text)}</t></is></c>`;
+          }
+        } else {
+          cellsXml += `<c r="${a}" s="${CERT_STYLE_IDX.blank}"/>`;
+        }
+      }
+      const ht = maxLines > 1 ? (maxLines*15+4) : undefined;
+      rowsXml += `<row r="${r}"${ht?` ht="${ht}" customHeight="1"`:''}>${cellsXml}</row>`;
+    }
+
+    const mergeXml = merges.length
+      ? `<mergeCells count="${merges.length}">` + merges.map(([r1,c1,r2,c2])=>`<mergeCell ref="${cellAddr(c1,r1)}:${cellAddr(c2,r2)}"/>`).join('') + `</mergeCells>`
+      : '';
+    const colsXml = `<cols>` + [12,16,14,8,8,8,12,12,10,16].map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('') + `</cols>`;
+    const drawingXml = hasDrawing ? `<drawing r:id="rIdDrawing"/>` : '';
+
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<dimension ref="A1:${cellAddr(NCOLS,docRow)}"/>
+<sheetViews><sheetView workbookViewId="0"/></sheetViews>
+<sheetFormatPr defaultRowHeight="15"/>
+${colsXml}
+<sheetData>${rowsXml}</sheetData>
+${mergeXml}
+${drawingXml}
+</worksheet>`;
   }
-  function exportDataExcel(){
-    if(typeof XLSX === 'undefined'){ toast('엑셀 내보내기 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'); return; }
+
+  function buildCertDrawingXml(pics){
+    const anchors = pics.map((p,i)=>`<xdr:twoCellAnchor>
+<xdr:from><xdr:col>${p.fromCol}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${p.fromRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
+<xdr:to><xdr:col>${p.toCol}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${p.toRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>
+<xdr:pic>
+<xdr:nvPicPr><xdr:cNvPr id="${i+1}" name="${esc(p.name)}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>
+<xdr:blipFill><a:blip r:embed="${p.embedId}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
+</xdr:pic>
+<xdr:clientData/>
+</xdr:twoCellAnchor>`).join('');
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+${anchors}
+</xdr:wsDr>`;
+  }
+
+  async function buildCertWorkbookZip(employees){
+    const zip = new JSZip();
+    const imagesBySheet = employees.map(certSheetImages);
+
+    zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Default Extension="png" ContentType="image/png"/>
+<Default Extension="jpeg" ContentType="image/jpeg"/>
+<Default Extension="gif" ContentType="image/gif"/>
+<Default Extension="bmp" ContentType="image/bmp"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+${employees.map((e,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('\n')}
+${employees.map((e,i)=> imagesBySheet[i].length ? `<Override PartName="/xl/drawings/drawing${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>` : '').filter(Boolean).join('\n')}
+</Types>`);
+    zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`);
+
+    const usedNames = new Set();
+    const sheetNames = employees.map(e=>{
+      let n = String(e.id).replace(/[\\/*?:\[\]]/g,'_').slice(0,31) || 'sheet';
+      while(usedNames.has(n)) n = (n+'_').slice(-31);
+      usedNames.add(n);
+      return n;
+    });
+
+    zip.file('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets>
+${employees.map((e,i)=>`<sheet name="${esc(sheetNames[i])}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('\n')}
+</sheets>
+</workbook>`);
+
+    zip.file('xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${employees.map((e,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('\n')}
+<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`);
+
+    zip.file('xl/styles.xml', CERT_STYLES_XML);
+
+    employees.forEach((e,i)=>{
+      const imgs = imagesBySheet[i];
+      zip.file(`xl/worksheets/sheet${i+1}.xml`, buildCertSheetXml(e, imgs.length>0));
+      if(imgs.length){
+        zip.file(`xl/worksheets/_rels/sheet${i+1}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rIdDrawing" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${i+1}.xml"/>
+</Relationships>`);
+        const pics = imgs.map((img,j)=> Object.assign({embedId:'rIdImg'+j}, img));
+        zip.file(`xl/drawings/drawing${i+1}.xml`, buildCertDrawingXml(pics));
+        zip.file(`xl/drawings/_rels/drawing${i+1}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${imgs.map((img,j)=>`<Relationship Id="rIdImg${j}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${i+1}_${j}.${img.ext}"/>`).join('\n')}
+</Relationships>`);
+        imgs.forEach((img,j)=>{ zip.file(`xl/media/image${i+1}_${j}.${img.ext}`, img.base64, {base64:true}); });
+      }
+    });
+
+    return zip;
+  }
+
+  async function exportDataExcel(){
+    if(typeof JSZip === 'undefined'){ toast('엑셀 내보내기 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'); return; }
     const all = employeesArray();
     if(!all.length){ toast('등록된 인원이 없습니다.'); return; }
-    const wb = XLSX.utils.book_new();
-    const usedNames = new Set();
-    all.forEach(e=>{
-      let name = String(e.id).slice(0,31) || 'sheet';
-      while(usedNames.has(name)) name = (name+'_').slice(-31);
-      usedNames.add(name);
-      const ws = buildEmployeeCertSheet(e);
-      XLSX.utils.book_append_sheet(wb, ws, name);
-    });
-    const d = new Date();
-    const stamp = d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'_'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0');
-    XLSX.writeFile(wb, `자격증명_${stamp}.xlsx`);
-    toast(`엑셀을 내려받았습니다 (${all.length}명, 업로드 원본과 같은 양식 — 사진은 포함되지 않습니다).`);
+    toast('엑셀 만드는 중...');
+    try{
+      const zip = await buildCertWorkbookZip(all);
+      const blob = await zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const url = URL.createObjectURL(blob);
+      const d = new Date();
+      const stamp = d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'_'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0');
+      const a = document.createElement('a');
+      a.href = url; a.download = `자격증명_${stamp}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 4000);
+      toast(`엑셀을 내려받았습니다 (${all.length}명, 업로드 원본과 같은 양식 — 사진·서명 포함).`);
+    }catch(e){
+      console.error('exportDataExcel failed', e);
+      toast('엑셀을 만들지 못했습니다: '+(e.message||'오류'));
+    }
   }
 
   /* ============================= 서명 이력 → 엑셀 내보내기 =============================
