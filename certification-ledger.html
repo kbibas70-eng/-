@@ -429,7 +429,7 @@
   const STORAGE_KEY = 'sjv_cert_ledger_v1';
   // 화면 상단(회사명 옆)에 작게 표시되는 버전 표기 — 여러 번 재전달된 파일 중 어떤 버전을
   // 쓰고 있는지 사용자/개발자가 한눈에 구분할 수 있도록 함. 새 버전을 보낼 때마다 갱신할 것.
-  const APP_VERSION = '2026-09-23.16 (인원 목록 필터 줄바꿈 — Unit/Assy/전체와 라인 버튼을 분리)';
+  const APP_VERSION = '2026-09-23.17 (엑셀 다운로드 맨 앞에 전체 목록 시트 추가 — 증명서 상태·바로가기)';
 
   /* ============================= seed data ============================= */
   /* 기본 상태는 항상 비어 있음 — 실제 데이터는 "엑셀 업로드" 버튼으로 xlsm을 올려야 채워지고,
@@ -1545,14 +1545,20 @@
   function colLetter(n){ let s=''; while(n>0){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=Math.floor((n-1)/26); } return s; }
   function cellAddr(col, row){ return colLetter(col)+row; }
 
-  const CERT_STYLE_IDX = { title:1, section:2, header:3, label:4, valueLeft:5, valueCenter:6, dateCenter:7, blank:8 };
+  const CERT_STYLE_IDX = {
+    title:1, section:2, header:3, label:4, valueLeft:5, valueCenter:6, dateCenter:7, blank:8,
+    statusOk:9, statusBad:10, link:11,
+  };
   const CERT_STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd"/></numFmts>
-<fonts count="3">
+<fonts count="6">
 <font><sz val="11"/><name val="Calibri"/></font>
 <font><b/><sz val="11"/><name val="Calibri"/></font>
 <font><b/><sz val="16"/><name val="Calibri"/></font>
+<font><b/><sz val="11"/><color rgb="FF1F8A5D"/><name val="Calibri"/></font>
+<font><b/><sz val="11"/><color rgb="FFB0332B"/><name val="Calibri"/></font>
+<font><u/><sz val="11"/><color rgb="FF1B3A6B"/><name val="Calibri"/></font>
 </fonts>
 <fills count="4">
 <fill><patternFill patternType="none"/></fill>
@@ -1565,7 +1571,7 @@
 <border><left style="thin"><color indexed="64"/></left><right style="thin"><color indexed="64"/></right><top style="thin"><color indexed="64"/></top><bottom style="thin"><color indexed="64"/></bottom><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="9">
+<cellXfs count="12">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
@@ -1575,6 +1581,9 @@
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
+<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="4" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="5" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -1720,6 +1729,69 @@ ${drawingXml}
 </worksheet>`;
   }
 
+  /* ============================= 엑셀 다운로드: 맨 앞 "전체 목록" 시트 =============================
+     원본 CHỨNG CHỈ U1.xlsm의 "DANH SACH & TONG HOP" 시트와 같은 기능 — 전 직원을 한 줄씩,
+     증명서 작성 여부(상태)와 함께 나열하고, "열기" 칸을 누르면 그 직원의 시트로 바로 이동한다.
+     원본은 Vị trí(직위)·Nhà cung ứng(공급업체)를 외부 인사 파일에서 VLOOKUP으로 끌어오는데,
+     이 앱은 그 필드 자체를 저장하지 않아서(엑셀 업로드가 읽는 칸에 없음) 이 두 칸은 뺐다. */
+  function buildIndexSheetXml(employees, sheetNames){
+    const NCOLS = 10;
+    const header = ['No.','Mã số thẻ','Họ tên','Line (Dept)','CÔNG ĐOẠN','Nơi làm việc','Ngày đề cử','Ngày vào làm','Trạng thái chứng chỉ','Mở chứng chỉ'];
+    const excelEpoch = Date.UTC(1899,11,30);
+    const dateSerial = (isoStr)=> Math.round((new Date(isoStr+'T00:00:00Z').getTime()-excelEpoch)/86400000);
+
+    let rowsXml = `<row r="1" ht="30" customHeight="1"><c r="A1" s="${CERT_STYLE_IDX.title}" t="inlineStr"><is><t xml:space="preserve">DANH SÁCH CÔNG NHÂN ĐỀ CỬ CÔNG ĐOẠN — TRẠNG THÁI GIẤY CHỨNG NHẬN</t></is></c>${Array.from({length:NCOLS-1},(_,i)=>`<c r="${cellAddr(i+2,1)}" s="${CERT_STYLE_IDX.title}"/>`).join('')}</row>`;
+    rowsXml += `<row r="2" ht="20" customHeight="1">${header.map((h,i)=>`<c r="${cellAddr(i+1,2)}" s="${CERT_STYLE_IDX.header}" t="inlineStr"><is><t xml:space="preserve">${esc(h)}</t></is></c>`).join('')}</row>`;
+
+    const hyperlinks = [];
+    employees.forEach((e,idx)=>{
+      const r = idx+3;
+      const complete = !!(e.name && e.hireDate);
+      const statusText = complete ? '✅ Đã có chứng nhận' : '❌ Chưa có';
+      const statusStyle = complete ? CERT_STYLE_IDX.statusOk : CERT_STYLE_IDX.statusBad;
+      const cells = [
+        {v: idx+1, style: CERT_STYLE_IDX.valueCenter, type:'n'},
+        {v: e.id, style: CERT_STYLE_IDX.valueCenter},
+        {v: e.name||'', style: CERT_STYLE_IDX.valueLeft},
+        {v: e.department||'', style: CERT_STYLE_IDX.valueCenter},
+        {v: e.process||'', style: CERT_STYLE_IDX.valueCenter},
+        {v: e.workplace||'', style: CERT_STYLE_IDX.valueLeft},
+        {v: e.recommendedDate||'', style: CERT_STYLE_IDX.dateCenter, type: e.recommendedDate?'d':'s'},
+        {v: e.hireDate||'', style: CERT_STYLE_IDX.dateCenter, type: e.hireDate?'d':'s'},
+        {v: statusText, style: statusStyle},
+        {v: '→ Mở chứng nhận', style: CERT_STYLE_IDX.link},
+      ];
+      let cellsXml = '';
+      cells.forEach((c,ci)=>{
+        const a = cellAddr(ci+1, r);
+        if(c.type==='d' && c.v) cellsXml += `<c r="${a}" s="${c.style}"><v>${dateSerial(c.v)}</v></c>`;
+        else if(c.type==='n') cellsXml += `<c r="${a}" s="${c.style}"><v>${c.v}</v></c>`;
+        else if(c.v==='') cellsXml += `<c r="${a}" s="${c.style}"/>`;
+        else cellsXml += `<c r="${a}" s="${c.style}" t="inlineStr"><is><t xml:space="preserve">${esc(c.v)}</t></is></c>`;
+      });
+      rowsXml += `<row r="${r}">${cellsXml}</row>`;
+      hyperlinks.push({row:r, col:NCOLS, sheetName: sheetNames[idx]});
+    });
+
+    const totalRows = employees.length + 2;
+    const mergeXml = `<mergeCells count="1"><mergeCell ref="A1:${cellAddr(NCOLS,1)}"/></mergeCells>`;
+    const colsXml = `<cols>` + [6,12,22,16,20,22,12,12,20,18].map((w,i)=>`<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('') + `</cols>`;
+    const hyperlinksXml = hyperlinks.length
+      ? `<hyperlinks>` + hyperlinks.map(h=>`<hyperlink ref="${cellAddr(h.col,h.row)}" location="${esc("'"+h.sheetName+"'!A1")}" display="Mở"/>`).join('') + `</hyperlinks>`
+      : '';
+
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<dimension ref="A1:${cellAddr(NCOLS,totalRows)}"/>
+<sheetViews><sheetView workbookViewId="0"/></sheetViews>
+<sheetFormatPr defaultRowHeight="15"/>
+${colsXml}
+<sheetData>${rowsXml}</sheetData>
+${mergeXml}
+${hyperlinksXml}
+</worksheet>`;
+  }
+
   function buildCertDrawingXml(pics){
     const anchors = pics.map((p,i)=>`<xdr:twoCellAnchor>
 <xdr:from><xdr:col>${p.fromCol}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${p.fromRow}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>
@@ -1740,6 +1812,16 @@ ${anchors}
   async function buildCertWorkbookZip(employees){
     const zip = new JSZip();
     const imagesBySheet = employees.map(certSheetImages);
+    // 파일 번호 1번은 항상 맨 앞의 "전체 목록" 시트, 직원 시트는 2번부터.
+    const fn = i => i+2;
+
+    const usedNames = new Set(['DANH_SACH___TONG_HOP']);
+    const sheetNames = employees.map(e=>{
+      let n = String(e.id).replace(/[\\/*?:\[\]]/g,'_').slice(0,31) || 'sheet';
+      while(usedNames.has(n)) n = (n+'_').slice(-31);
+      usedNames.add(n);
+      return n;
+    });
 
     zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -1751,52 +1833,49 @@ ${anchors}
 <Default Extension="bmp" ContentType="image/bmp"/>
 <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
 <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-${employees.map((e,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('\n')}
-${employees.map((e,i)=> imagesBySheet[i].length ? `<Override PartName="/xl/drawings/drawing${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>` : '').filter(Boolean).join('\n')}
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+${employees.map((e,i)=>`<Override PartName="/xl/worksheets/sheet${fn(i)}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('\n')}
+${employees.map((e,i)=> imagesBySheet[i].length ? `<Override PartName="/xl/drawings/drawing${fn(i)}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>` : '').filter(Boolean).join('\n')}
 </Types>`);
     zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>`);
 
-    const usedNames = new Set();
-    const sheetNames = employees.map(e=>{
-      let n = String(e.id).replace(/[\\/*?:\[\]]/g,'_').slice(0,31) || 'sheet';
-      while(usedNames.has(n)) n = (n+'_').slice(-31);
-      usedNames.add(n);
-      return n;
-    });
-
     zip.file('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <sheets>
-${employees.map((e,i)=>`<sheet name="${esc(sheetNames[i])}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('\n')}
+<sheet name="DANH SACH &amp; TONG HOP" sheetId="1" r:id="rId1"/>
+${employees.map((e,i)=>`<sheet name="${esc(sheetNames[i])}" sheetId="${fn(i)}" r:id="rId${fn(i)}"/>`).join('\n')}
 </sheets>
 </workbook>`);
 
     zip.file('xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-${employees.map((e,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('\n')}
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+${employees.map((e,i)=>`<Relationship Id="rId${fn(i)}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${fn(i)}.xml"/>`).join('\n')}
 <Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`);
 
     zip.file('xl/styles.xml', CERT_STYLES_XML);
 
+    zip.file('xl/worksheets/sheet1.xml', buildIndexSheetXml(employees, sheetNames));
+
     employees.forEach((e,i)=>{
       const imgs = imagesBySheet[i];
-      zip.file(`xl/worksheets/sheet${i+1}.xml`, buildCertSheetXml(e, imgs.length>0));
+      zip.file(`xl/worksheets/sheet${fn(i)}.xml`, buildCertSheetXml(e, imgs.length>0));
       if(imgs.length){
-        zip.file(`xl/worksheets/_rels/sheet${i+1}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        zip.file(`xl/worksheets/_rels/sheet${fn(i)}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rIdDrawing" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${i+1}.xml"/>
+<Relationship Id="rIdDrawing" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${fn(i)}.xml"/>
 </Relationships>`);
         const pics = imgs.map((img,j)=> Object.assign({embedId:'rIdImg'+j}, img));
-        zip.file(`xl/drawings/drawing${i+1}.xml`, buildCertDrawingXml(pics));
-        zip.file(`xl/drawings/_rels/drawing${i+1}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        zip.file(`xl/drawings/drawing${fn(i)}.xml`, buildCertDrawingXml(pics));
+        zip.file(`xl/drawings/_rels/drawing${fn(i)}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-${imgs.map((img,j)=>`<Relationship Id="rIdImg${j}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${i+1}_${j}.${img.ext}"/>`).join('\n')}
+${imgs.map((img,j)=>`<Relationship Id="rIdImg${j}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${fn(i)}_${j}.${img.ext}"/>`).join('\n')}
 </Relationships>`);
-        imgs.forEach((img,j)=>{ zip.file(`xl/media/image${i+1}_${j}.${img.ext}`, img.base64, {base64:true}); });
+        imgs.forEach((img,j)=>{ zip.file(`xl/media/image${fn(i)}_${j}.${img.ext}`, img.base64, {base64:true}); });
       }
     });
 
